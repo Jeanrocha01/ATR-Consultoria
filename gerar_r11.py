@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
-"""Gera arquivos R11 (Livro de Apuração de Entrada PER/DCOMP) separados por trimestre.
+"""Gera arquivos R11/R12 (Livro de Apuração PER/DCOMP) separados por trimestre.
 
-Layout (linha de 112 caracteres + CRLF):
-  01 Tipo                              R11                (3)
+Mesmo layout para os dois registros — linha fixa de 112 caracteres + CRLF;
+o "Tipo" é lido da própria coluna do TSV e usado como prefixo do arquivo.
+
+Uso:
+  python3 gerar_r11.py [arquivo.tsv]    # default: dados.tsv
+
+Layout dos campos:
+  01 Tipo                              R11/R12            (3)
   02 CNPJ Declarante                   14 dígitos
   03 CNPJ Sucedida                     14 dígitos (ou 14 espaços)
   04 CNPJ Detentor do Crédito          14 dígitos
   05 Ano de Apuração (AAAA)            4
   06 Mês de Apuração (MM)              2
   07 Forma de Apuração                 1 ("0" = mensal)
-  08 CFOP                              4
+  08 CFOP                              4 (R11: 1101-3949 | R12: 5101-7949)
   09 Valor Base de Cálculo             14 (centavos, zero à esquerda)
-  10 Valor IPI Creditado               14
+  10 Valor IPI Creditado/Debitado      14
   11 Valor Isentas/Não Tributadas      14
   12 Valor Outras                      14
   13 EOL (CRLF)
@@ -19,11 +25,11 @@ Layout (linha de 112 caracteres + CRLF):
 from __future__ import annotations
 
 import csv
+import sys
 from collections import defaultdict
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent
-ORIGEM = BASE / "dados.tsv"
 SAIDA = BASE / "trimestres"
 
 
@@ -72,20 +78,22 @@ def monta_linha(row: dict) -> str:
 
 
 def main() -> None:
+    origem = Path(sys.argv[1]) if len(sys.argv) > 1 else BASE / "dados.tsv"
     SAIDA.mkdir(parents=True, exist_ok=True)
 
-    grupos: dict[tuple[int, int], list[str]] = defaultdict(list)
+    grupos: dict[tuple[str, int, int], list[str]] = defaultdict(list)
 
-    with ORIGEM.open(newline="", encoding="utf-8") as fh:
+    with origem.open(newline="", encoding="utf-8") as fh:
         leitor = csv.DictReader(fh, delimiter="\t")
         for row in leitor:
+            tipo = row["Tipo"].strip()
             ano = int(row["Ano Período"])
             mes = int(row["Mês Período"])
-            grupos[(ano, trimestre(mes))].append(monta_linha(row))
+            grupos[(tipo, ano, trimestre(mes))].append(monta_linha(row))
 
     resumo: list[str] = []
-    for (ano, trim), linhas in sorted(grupos.items()):
-        nome = f"R11_{ano}_{trim}T.txt"
+    for (tipo, ano, trim), linhas in sorted(grupos.items()):
+        nome = f"{tipo}_{ano}_{trim}T.txt"
         destino = SAIDA / nome
         with destino.open("w", encoding="latin-1", newline="") as out:
             out.write("\r\n".join(linhas) + "\r\n")
